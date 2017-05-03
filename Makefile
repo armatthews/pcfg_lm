@@ -13,7 +13,7 @@ OBJDIR=obj
 SRCDIR=src
 
 .PHONY: clean
-all: make_dirs $(BINDIR)/train
+all: make_dirs $(BINDIR)/train $(BINDIR)/show_grammar
 
 make_dirs:
 	mkdir -p $(OBJDIR)
@@ -25,7 +25,10 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.cc
 	$(CC) $(CFLAGS) $(INCS) -c $< -o $@
 	$(CC) -MM -MP -MT "$@" $(CFLAGS) $(INCS) $< > $(OBJDIR)/$*.d
 
-$(BINDIR)/train: $(addprefix $(OBJDIR)/, train.o io.o mlp.o utils.o)
+$(BINDIR)/train: $(addprefix $(OBJDIR)/, train.o io.o pcfglm.o mlp.o utils.o)
+	$(CC) $(CFLAGS) $(LIBS) $(INCS) $^ -o $@ $(FINAL)
+
+$(BINDIR)/show_grammar: $(addprefix $(OBJDIR)/, show_grammar.o io.o pcfglm.o mlp.o utils.o)
 	$(CC) $(CFLAGS) $(LIBS) $(INCS) $^ -o $@ $(FINAL)
 
 clean:

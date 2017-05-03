@@ -11,6 +11,8 @@ using namespace dynet::mp;
 using namespace std;
 namespace po = boost::program_options;
 
+extern Dict* g_vocab;
+
 class Learner : public ILearner<Sentence, SufficientStats> {
 public:
   Learner(Dict& vocab, PcfgLm& model, Model& dynet_model, Trainer* trainer) : vocab(vocab), model(model), dynet_model(dynet_model), trainer(trainer) {}
@@ -96,6 +98,7 @@ int main(int argc, char** argv) {
   ("help", "Display this help message")
   ("train_text", po::value<string>()->required(), "Training text")
   ("dev_text", po::value<string>()->required(), "Dev text, used for early stopping")
+  ("nt_count,n", po::value<unsigned>()->default_value(5), "Number of non-terminals ot use")
   ("num_iterations,i", po::value<unsigned>()->default_value(UINT_MAX), "Number of epochs to train for")
   ("cores,j", po::value<unsigned>()->default_value(1), "Number of CPU cores to use for training")
   ("dropout_rate", po::value<float>()->default_value(0.0), "Dropout rate (should be >= 0.0 and < 1)")
@@ -120,6 +123,7 @@ int main(int argc, char** argv) {
 
   po::notify(vm);
 
+  const unsigned nt_count = vm["nt_count"].as<unsigned>();
   const unsigned num_cores = vm["cores"].as<unsigned>();
   const unsigned num_iterations = vm["num_iterations"].as<unsigned>();
   const string train_text_filename = vm["train_text"].as<string>();
@@ -144,7 +148,7 @@ int main(int argc, char** argv) {
   vector<Sentence> train_text = ReadText(train_text_filename, vocab); 
 
   if (!vm.count("model")) {
-    model = new PcfgLm();
+    model = new PcfgLm(nt_count, vocab.size(), 16, 16, dynet_model);
     vocab.freeze();
     vocab.set_unk("UNK");
   }
@@ -161,12 +165,20 @@ int main(int argc, char** argv) {
   unsigned dev_frequency = vm["dev_frequency"].as<unsigned>();
   unsigned report_frequency = vm["report_frequency"].as<unsigned>();
 
-  /*if (num_cores > 1) {
-    run_multi_process<Sentence>(num_cores, &learner, trainer, train_text, dev_text, num_iterations, dev_frequency, report_frequency);
+  g_vocab = &vocab;
+
+  for (unsigned iteration = 0; iteration < num_iterations; ++iteration) {
+    for (unsigned i = 0; i < train_text.size(); ++i) {
+      const Sentence& sentence = train_text[i];
+      if (sentence.size() > 20) {
+        continue;
+      }
+      SufficientStats loss = learner.LearnFromDatum(sentence, true);
+      cerr << iteration << "-" << i << " " << loss << endl;
+      trainer->update();
+    }
+    Serialize(vocab, *model, dynet_model, trainer);
   }
-  else {
-    run_single_process<Sentence>(&learner, trainer, train_text, dev_text, num_iterations, dev_frequency, report_frequency, 1);
-  }*/
 
   return 0;
 }
