@@ -45,6 +45,8 @@ Expression PcfgLm::GetRuleProbs() {
 
 Expression PcfgLm::GetSentenceProb(const Sentence& sentence) {
   assert (sentence.size() > 0);
+  static_assert(std::numeric_limits<float>::is_iec559, "IEEE 754 required");
+  const float neg_inf = -std::numeric_limits<float>::infinity();
 
   // table[i, j, n] gives the probability that the span [i, j) parses as non-terminal N
   // i should be in [0, L], j should be in (i, L], and n should be in [0, nt_count), where L is the length of the sentence
@@ -89,7 +91,7 @@ Expression PcfgLm::GetSentenceProb(const Sentence& sentence) {
                 assert (i < k);
                 assert (k < j);
                 //cerr << i << ", " << k << ", " << j << ", " << A << " --> " << B << " " << C << endl;
-                table[i][j][A] = table[i][j][A] + table[i][k][B] * table[k][j][C];
+                table[i][j][A] = table[i][j][A] + binary_rule_probs[A][B][C] * table[i][k][B] * table[k][j][C];
               }
             }
           }
