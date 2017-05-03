@@ -36,7 +36,7 @@ Expression PcfgLm::GetRuleProbs() {
   vector<Expression> chunks(nt_count);
   for (unsigned i = 0; i < nt_count; ++i) {
     Expression range = pickrange(scores, i * rules_per_nt, (i + 1) * rules_per_nt);
-    chunks[i] = softmax(range);
+    chunks[i] = log_softmax(range);
   }
 
   Expression rule_probs = concatenate(chunks);
@@ -53,7 +53,7 @@ Expression PcfgLm::GetSentenceProb(const Sentence& sentence) {
   // Note: half this table (where j <= i) is unused.
   const unsigned L = sentence.size();
   Expression probs = GetRuleProbs();
-  vector<vector<vector<Expression>>> table(L, vector<vector<Expression>>(L + 1, vector<Expression>(nt_count, input(*pcg, 0.0f))));
+  vector<vector<vector<Expression>>> table(L, vector<vector<Expression>>(L + 1, vector<Expression>(nt_count, input(*pcg, neg_inf))));
 
   // Seed the table with pre-terminal probabilities
   const unsigned rules_per_nt = (nt_count * nt_count + vocab_size);
@@ -91,7 +91,9 @@ Expression PcfgLm::GetSentenceProb(const Sentence& sentence) {
                 assert (i < k);
                 assert (k < j);
                 //cerr << i << ", " << k << ", " << j << ", " << A << " --> " << B << " " << C << endl;
-                table[i][j][A] = table[i][j][A] + binary_rule_probs[A][B][C] * table[i][k][B] * table[k][j][C];
+                Expression new_prob = binary_rule_probs[A][B][C] + table[i][k][B] + table[k][j][C];
+                Expression M = max(table[i][j][A], new_prob);
+                table[i][j][A] = M + log(exp(table[i][j][A] - M) + exp(new_prob - M));
               }
             }
           }
@@ -100,7 +102,7 @@ Expression PcfgLm::GetSentenceProb(const Sentence& sentence) {
     }
   }
 
-  return -log(table[0][L][0] + 1e-40f);
+  return -table[0][L][0];
 }
 
 string PcfgLm::nt_string(unsigned i) const {
