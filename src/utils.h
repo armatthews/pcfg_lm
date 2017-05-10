@@ -34,3 +34,5 @@ float logsumexp(const vector<float>& v);
 vector<Expression> MakeLSTMInitialState(Expression c, unsigned lstm_dim, unsigned lstm_layer_count);
 string vec2str(Expression expr);
 bool same_value(Expression e1, Expression e2);
+
+vector<Sentence> ReadText(const string& filename, Dict& vocab);

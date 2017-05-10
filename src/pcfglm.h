@@ -19,9 +19,10 @@ public:
   string rule_string(unsigned i, Dict& vocab) const;
   unsigned num_rules() const;
 
-private:
   unsigned nt_count;
   unsigned vocab_size;
+
+private:
   LookupParameter rules;
   MLP score_mlp;
 

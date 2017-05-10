@@ -36,7 +36,7 @@ public:
   }
 
   friend std::ostream& operator<< (std::ostream& stream, const SufficientStats& stats) {
-    return stream << exp(stats.loss / stats.word_count) << " (" << stats.loss << " over " << stats.word_count << " words)";
+    return stream << exp(stats.loss / stats.word_count) << " (" << stats.loss << " over " << stats.word_count << " words and " << stats.sentence_count << " sentences)";
   }
 };
 

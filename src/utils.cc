@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <sstream>
 #include <vector>
 #include <map>
@@ -139,3 +140,19 @@ bool same_value(Expression e1, Expression e2) {
   }
   return true;
 }
+
+vector<Sentence> ReadText(const string& filename, Dict& vocab) {
+  ifstream f(filename);
+  if (!f.is_open()) {
+    cerr << "Unable to open " << filename << " for reading." << endl;
+    exit(1);
+  }
+
+  vector<Sentence> r;
+  for (string line; getline(f, line);) {
+    r.push_back(read_sentence(line, vocab));
+  }
+
+  return r;
+}
+

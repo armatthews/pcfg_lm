@@ -4,7 +4,7 @@ using namespace std;
 
 Dict* g_vocab = nullptr;
 
-PcfgLm::PcfgLm() {}
+PcfgLm::PcfgLm() : nt_count(0), vocab_size(0) {}
 
 PcfgLm::PcfgLm(unsigned nt_count, unsigned vocab_size, unsigned rule_emb_dim, unsigned hidden_size, Model& model) :
     nt_count(nt_count), vocab_size(vocab_size), pcg(nullptr) {
@@ -86,16 +86,19 @@ Expression PcfgLm::GetSentenceProb(const Sentence& sentence) {
       for (unsigned j = i + 1; j <= i + len; ++j) {
         for (unsigned k = i + 1; k < j; ++k) {
           for (unsigned A = 0; A < nt_count; ++A) {
+            //vector<Expression> terms;
             for (unsigned B = 0; B < nt_count; ++B) {
               for (unsigned C = 0; C < nt_count; ++C) {
                 assert (i < k);
                 assert (k < j);
                 //cerr << i << ", " << k << ", " << j << ", " << A << " --> " << B << " " << C << endl;
                 Expression new_prob = binary_rule_probs[A][B][C] + table[i][k][B] + table[k][j][C];
+                //terms.push_back(new_prob);
                 Expression M = max(table[i][j][A], new_prob);
                 table[i][j][A] = M + log(exp(table[i][j][A] - M) + exp(new_prob - M));
               }
             }
+            //table[i][j][A] = logsumexp(terms);
           }
         }
       }

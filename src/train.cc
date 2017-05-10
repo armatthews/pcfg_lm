@@ -1,5 +1,6 @@
 #include <iostream>
 #include <csignal>
+#include <chrono>
 #include "train.h"
 #include "pcfglm.h"
 #include "utils.h"
@@ -68,19 +69,21 @@ void ctrlc_handler(int signal) {
   }
 }
 
-vector<Sentence> ReadText(const string& filename, Dict& vocab) {
-  ifstream f(filename);
-  if (!f.is_open()) {
-    cerr << "Unable to open " << filename << " for reading." << endl;
-    exit(1);
+SufficientStats RunDevSet(vector<Sentence>& dev_set, PcfgLm* model, unsigned max_length) {
+  float loss = 0.0f;
+  unsigned words = 0;
+  for (unsigned i = 0; i < dev_set.size(); ++i) {
+    ComputationGraph cg;
+    Sentence& sent = dev_set[i];
+    if (sent.size() > max_length) {
+      continue;
+    }
+    model->NewGraph(cg);
+    Expression loss_expr = model->BuildGraph(sent);
+    loss += as_scalar(loss_expr.value());
+    words += sent.size();
   }
-
-  vector<Sentence> r;
-  for (string line; getline(f, line);) {
-    r.push_back(read_sentence(line, vocab));
-  }
-
-  return r;
+  return SufficientStats(loss, words, dev_set.size());
 }
 
 int main(int argc, char** argv) {
@@ -99,6 +102,7 @@ int main(int argc, char** argv) {
   ("train_text", po::value<string>()->required(), "Training text")
   ("dev_text", po::value<string>()->required(), "Dev text, used for early stopping")
   ("nt_count,n", po::value<unsigned>()->default_value(5), "Number of non-terminals ot use")
+  ("max_length,l", po::value<unsigned>()->default_value(20), "Skip training on sentences longer than this")
   ("num_iterations,i", po::value<unsigned>()->default_value(UINT_MAX), "Number of epochs to train for")
   ("cores,j", po::value<unsigned>()->default_value(1), "Number of CPU cores to use for training")
   ("dropout_rate", po::value<float>()->default_value(0.0), "Dropout rate (should be >= 0.0 and < 1)")
@@ -125,6 +129,7 @@ int main(int argc, char** argv) {
 
   const unsigned nt_count = vm["nt_count"].as<unsigned>();
   const unsigned num_cores = vm["cores"].as<unsigned>();
+  const unsigned max_length = vm["max_length"].as<unsigned>();
   const unsigned num_iterations = vm["num_iterations"].as<unsigned>();
   const string train_text_filename = vm["train_text"].as<string>();
   const string dev_text_filename = vm["dev_text"].as<string>();
@@ -145,7 +150,7 @@ int main(int argc, char** argv) {
     }
   }
 
-  vector<Sentence> train_text = ReadText(train_text_filename, vocab); 
+  vector<Sentence> train_text = ReadText(train_text_filename, vocab);
 
   if (!vm.count("model")) {
     model = new PcfgLm(nt_count, vocab.size(), 16, 16, dynet_model);
@@ -155,29 +160,58 @@ int main(int argc, char** argv) {
 
   vector<Sentence> dev_text = ReadText(dev_text_filename, vocab);
 
-  cerr << "Vocabulary size: " << vocab.size() << endl; 
+  cerr << "Vocabulary size: " << vocab.size() << endl;
   cerr << "Total parameters: " << dynet_model.parameter_count() << endl;
 
   trainer = CreateTrainer(dynet_model, vm);
   Learner learner(vocab, *model, dynet_model, trainer);
   learner.quiet = vm.count("quiet") > 0;
   learner.dropout_rate = vm["dropout_rate"].as<float>();
-  unsigned dev_frequency = vm["dev_frequency"].as<unsigned>();
-  unsigned report_frequency = vm["report_frequency"].as<unsigned>();
+
+  const bool quiet = vm.count("quiet") > 0;
+  const unsigned dev_frequency = vm["dev_frequency"].as<unsigned>();
+  const unsigned report_frequency = vm["report_frequency"].as<unsigned>();
 
   g_vocab = &vocab;
+
+  unsigned data_since_dev = 0;
+  unsigned data_since_report = 0;
+  SufficientStats loss;
+  SufficientStats best_dev_stats;
+  std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
 
   for (unsigned iteration = 0; iteration < num_iterations; ++iteration) {
     for (unsigned i = 0; i < train_text.size(); ++i) {
       const Sentence& sentence = train_text[i];
-      if (sentence.size() > 20) {
+      if (sentence.size() > max_length) {
         continue;
       }
-      SufficientStats loss = learner.LearnFromDatum(sentence, true);
-      cerr << iteration << "-" << i << " " << loss << endl;
+      loss += learner.LearnFromDatum(sentence, true);
+
+      float fractional_epoch = iteration + 1.0f * (i + 1) / train_text.size();
+      if (++data_since_report == report_frequency) {
+        std::chrono::steady_clock::time_point end_time = std::chrono::steady_clock::now();
+        double secs = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count() / 1000000.0;
+        start_time = end_time;
+        cerr << fractional_epoch << "\t" << "loss = " << loss << " (" << secs << " secs)" << endl;
+        data_since_report = 0;
+        loss = SufficientStats();
+      }
       trainer->update();
+
+      if (++data_since_dev == dev_frequency) {
+        SufficientStats dev_stats = RunDevSet(dev_text, model, max_length);
+        bool new_best = best_dev_stats.sentence_count == 0 || best_dev_stats < dev_stats;
+        cerr << fractional_epoch << "\t" << "dev loss = " << dev_stats << (new_best ? "" : " (New best!)") << endl;
+        if (new_best) {
+          if (!quiet) {
+            Serialize(vocab, *model, dynet_model, trainer);
+          }
+          best_dev_stats = dev_stats;
+        }
+        data_since_dev = 0;
+      }
     }
-    Serialize(vocab, *model, dynet_model, trainer);
   }
 
   return 0;
